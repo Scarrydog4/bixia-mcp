@@ -3,9 +3,10 @@ __pycache__/
 .DS_Store
 .venv/
 config.json
+*.enrollment.json
+*.enrollment.lock
 *激活*.json
 *activation*.json
 *.key
 *.sqlite*
 *.zip
-

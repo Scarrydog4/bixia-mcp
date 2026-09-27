@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bixia-mcp",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "文献检索核验与Word文件双降",
   "author": {
     "name": "笔下MCP"

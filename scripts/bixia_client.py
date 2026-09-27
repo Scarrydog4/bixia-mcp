@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import ssl
 import subprocess
 import sys
@@ -25,6 +26,7 @@ MAX_FILE = 10 * 1024 * 1024
 MAX_RESULT = 40 * 1024 * 1024
 MAX_ARCHIVE = 100 * 1024 * 1024
 MAX_JSON = 1024 * 1024
+MAX_ENROLLMENT_JSON = 4096
 DEFAULT_URL = "https://64.83.38.67:9443"
 DEFAULT_CONFIG = Path.home() / ".academic-rewrite" / "config.json"
 DEFAULT_STATE = Path.home() / ".academic-rewrite" / "receipts"
@@ -41,7 +43,7 @@ PUBLIC_CODES = {"invalid_input", "invalid_file", "unsupported_file", "file_too_l
                 "quota_exceeded", "literature_unavailable", "download_failed", "invalid_citation", "literature_quota",
                 "literature_not_found", "literature_timeout", "invalid_result", "already_running", "storage_full",
                 "non_pdf_result", "download_link_unavailable", "download_adapter_unavailable", "session_expired",
-                "document_integrity", "docx_required", "no_safe_text",
+                "document_integrity", "docx_required", "no_safe_text", "enrollment_disabled", "enrollment_limited",
                 "upstream_access_denied", "partial_failure", "feature_disabled"}
 MESSAGES = {
     "need_platform": "请选择本次文件使用的检测平台。",
@@ -49,6 +51,11 @@ MESSAGES = {
     "job_not_ready": "文件尚未完成，请稍后查询同一任务。",
     "request_already_attempted": "本次任务已提交或结果未知；请查询原任务，未再次提交。",
     "configuration": "无法读取共享服务配置，请在本机配置服务地址、访问密钥和可信证书。",
+    "enrollment_disabled": "服务暂未开放新设备接入，请联系服务提供者。",
+    "enrollment_limited": "新设备接入暂时达到限额，请稍后重新运行安装。",
+    "enrollment_network": "新设备接入未完成，请检查网络后重新运行；本机安装凭据已保留，未提交改写任务。",
+    "enrollment_busy": "本机接入配置正在准备，请稍后重新运行。",
+    "access_denied": "此设备访问已停用或接入凭据不匹配，请联系服务提供者。",
     "invalid_input": "工具参数无效。",
     "invalid_file": "请选择有效的 DOC 或 DOCX 文件。",
     "docx_required": "保护改写需 DOCX，请先将 DOC 另存为 DOCX；未提交付费任务。",
@@ -217,6 +224,115 @@ def json_object(raw):
         raise ShareError("response_invalid") from None
 
 
+def _config_path(path=None):
+    return Path(path or os.environ.get("BIXIA_MCP_CONFIG", os.environ.get("ACADEMIC_REWRITE_CONFIG", str(DEFAULT_CONFIG)))).expanduser()
+
+
+def secure_opener(ca_file=None):
+    try:
+        context = ssl.create_default_context(cafile=str(ca_file)) if ca_file else ssl.create_default_context()
+        return urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context))
+    except (OSError, ValueError, ssl.SSLError):
+        raise ShareError("configuration") from None
+
+
+def ensure_auto_config(path=None, *, opener=None, progress=None):
+    """Create a private per-install access config once; never replace an existing config."""
+    destination = _config_path(path)
+    if destination.exists() or "BIXIA_MCP_KEY" in os.environ or "ACADEMIC_REWRITE_KEY" in os.environ:
+        return destination
+    progress = progress if progress is not None else lambda message: print(message, file=sys.stderr)
+    proof_path = destination.with_name(destination.name + ".enrollment.json")
+    lock_path = destination.with_name(destination.name + ".enrollment.lock")
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        protect_private_path(destination.parent, directory=True)
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        raise ShareError("local_file") from None
+    try:
+        protect_private_path(lock_path)
+        try:
+            if IS_WINDOWS:
+                import msvcrt
+                os.write(descriptor, b"\0")
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise ShareError("enrollment_busy") from None
+        if destination.exists():
+            return destination
+        if proof_path.exists():
+            ensure_private_file(proof_path)
+            proof = json_object(proof_path.read_bytes())
+            if (set(proof) != {"install_id", "enrollment_secret"}
+                    or not isinstance(proof["install_id"], str)
+                    or not isinstance(proof["enrollment_secret"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", proof["enrollment_secret"])):
+                raise ShareError("configuration")
+            try:
+                identity = uuid.UUID(proof["install_id"])
+            except ValueError:
+                raise ShareError("configuration") from None
+        else:
+            identity = uuid.uuid4()
+            proof = {"install_id": str(identity), "enrollment_secret": secrets.token_hex(32)}
+            private_write(proof_path, proof)
+        url = checked_url(os.environ.get("BIXIA_MCP_URL", os.environ.get("ACADEMIC_REWRITE_URL", DEFAULT_URL)))
+        ca = os.environ.get("BIXIA_MCP_CA_FILE", os.environ.get("ACADEMIC_REWRITE_CA_FILE"))
+        if ca is None and DEFAULT_CA.is_file():
+            ca = DEFAULT_CA
+        ca = str(Path(ca).expanduser().resolve()) if ca is not None else None
+        opener = opener if opener is not None else secure_opener(ca)
+        request = urllib.request.Request(url + "/share/enroll", method="POST",
+                                         data=json.dumps(proof).encode("utf-8"),
+                                         headers={"Accept": "application/json", "Content-Type": "application/json"})
+        progress("BIxia 正在为此设备准备独立访问配置……")
+        try:
+            with opener.open(request, timeout=30) as response:
+                if response.status != 200:
+                    raise ShareError("response_invalid")
+                raw = response.read(MAX_ENROLLMENT_JSON + 1)
+                if len(raw) > MAX_ENROLLMENT_JSON:
+                    raise ShareError("response_invalid")
+        except urllib.error.HTTPError as error:
+            if 300 <= error.code < 400:
+                error.close()
+                raise ShareError("redirect_blocked") from None
+            try:
+                raw = error.read(MAX_ENROLLMENT_JSON + 1)
+                envelope = json_object(raw) if len(raw) <= MAX_ENROLLMENT_JSON else {}
+                detail = envelope.get("error")
+                code = detail.get("code") if isinstance(detail, dict) else None
+            except (ShareError, OSError, TimeoutError, http.client.HTTPException):
+                code = None
+            finally:
+                error.close()
+            allowed = {"enrollment_disabled", "enrollment_limited", "access_denied", "invalid_input", "service_unavailable"}
+            raise ShareError(code if code in allowed else "service_unavailable") from None
+        except (urllib.error.URLError, OSError, TimeoutError, http.client.HTTPException):
+            raise ShareError("enrollment_network") from None
+        envelope = json_object(raw)
+        data = envelope.get("data")
+        if (set(envelope) != {"ok", "data"} or envelope.get("ok") is not True or not isinstance(data, dict)
+                or set(data) != {"api_key", "owner_id"} or data.get("owner_id") != "install_" + identity.hex
+                or not isinstance(data.get("api_key"), str) or not re.fullmatch(r"[0-9a-f]{64}", data["api_key"])):
+            raise ShareError("response_invalid")
+        value = {"server_url": url, "api_key": data["api_key"]}
+        if ca is not None:
+            value["ca_file"] = ca
+        private_write(destination, value)
+        progress("BIxia 此设备的访问配置已保存，未提交改写任务。")
+        return destination
+    except (OSError, TypeError, ValueError):
+        raise ShareError("configuration") from None
+    finally:
+        os.close(descriptor)
+
+
 def is_docx(raw):
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
@@ -238,23 +354,19 @@ class ShareClient:
         self.state_dir = Path(state_dir) if state_dir is not None else DEFAULT_STATE
         self.namespace = hashlib.sha256((self.url + "\0" + key).encode()).hexdigest()[:32]
         if opener is None:
-            try:
-                context = ssl.create_default_context(cafile=str(ca_file)) if ca_file else ssl.create_default_context()
-                self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=context))
-            except (OSError, ValueError, ssl.SSLError):
-                raise ShareError("configuration") from None
+            self.opener = secure_opener(ca_file)
         else:
             self.opener = opener
 
     @classmethod
-    def from_config(cls, path=None, state_dir=None):
-        config_path = Path(path or os.environ.get("BIXIA_MCP_CONFIG", os.environ.get("ACADEMIC_REWRITE_CONFIG", str(DEFAULT_CONFIG)))).expanduser()
+    def from_config(cls, path=None, state_dir=None, *, allow_missing=False):
+        config_path = _config_path(path)
         values = {}
         try:
             if config_path.exists():
                 ensure_private_file(config_path)
                 values = json_object(config_path.read_bytes())
-            elif path is not None:
+            elif path is not None and not allow_missing:
                 raise ShareError("configuration")
             url = os.environ.get("BIXIA_MCP_URL", os.environ.get("ACADEMIC_REWRITE_URL", values.get("server_url", DEFAULT_URL)))
             key = os.environ.get("BIXIA_MCP_KEY", os.environ.get("ACADEMIC_REWRITE_KEY", values.get("api_key", "")))
@@ -738,7 +850,7 @@ class ShareMCP:
                 return self.rpc_error(identity, -32602, "Invalid protocolVersion")
             self.initialized = True
             result = {"protocolVersion": version if version in VERSIONS else VERSIONS[-1], "capabilities": {"tools": {}},
-                      "serverInfo": {"name": "bixia-mcp", "version": "1.0.4"},
+                      "serverInfo": {"name": "bixia-mcp", "version": "1.0.5"},
                       "instructions": "笔下MCP提供文献检索、书目核验与Word改写，文献下载已关闭。用户要求降重、降AI或双降时，先取得本机DOC/DOCX路径并询问本次目标检测平台，未明确不得自行选择。默认语言CN，模式固定双降，功能为文件改写Pro。保留Word任务job_id查询进度；完成后将改写Word文件保存至本机并提供路径。书目或摘要不等于全文证据，文献匹配不等于论文结论已验证。"}
         elif method == "ping":
             result = {}
@@ -810,11 +922,16 @@ def main():
             private_write(Path(args.config or DEFAULT_CONFIG).expanduser(), {"server_url": url, "api_key": key, "ca_file": str(Path(ca).expanduser().resolve())})
             print("本机私有配置已保存，尚未提交文件。")
             return 0
-        client = ShareClient.from_config(args.config, args.state_dir)
+        ensure_auto_config(args.config)
+        client = ShareClient.from_config(args.config, args.state_dir,
+                                        allow_missing="BIXIA_MCP_KEY" in os.environ or "ACADEMIC_REWRITE_KEY" in os.environ)
         ShareMCP(client).serve(sys.stdin, sys.stdout)
         return 0
     except KeyboardInterrupt:
         return 0
+    except ShareError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception:
         print(MESSAGES["configuration"], file=sys.stderr)
         return 1

@@ -2,35 +2,36 @@
 
 同一套标准 stdio MCP 工具，提供中文/英文文献检索、参考文献核验，以及 Word 文件双降。文献下载已关闭。工具说明自带使用流程；接入不依赖 Codex 插件或某个 Agent 的技能系统。可在支持本机 stdio MCP 的客户端使用；无法直接在没有本机 MCP 功能的纯网页聊天中运行。
 
-## 从 GitHub 安装
+## 从 GitHub 安装：无需激活文件
 
-需要 **Git** 与 **Python 3.10 或以上**，无需第三方 Python 包。公开仓库只包含客户端，不含访问密钥或后台代码。个人激活 JSON 由服务提供者单独提供。
+需要 **Git** 与 **Python 3.10 或以上**，无需第三方 Python 包。首次运行会自动连接服务、领取独立的本机访问配置；已有配置继续使用。
 
 macOS / Linux：
 
 ```bash
-git clone https://github.com/Scarrydog4/bixia-mcp.git "$HOME/Applications/BIxia"
-python3 "$HOME/Applications/BIxia/scripts/setup.py"
+git clone https://github.com/Scarrydog4/bixia-mcp.git
+python3 bixia-mcp/scripts/setup.py
 ```
 
-首次运行会提示输入激活 JSON 的完整路径；也可显式指定：
-
-```bash
-python3 "$HOME/Applications/BIxia/scripts/setup.py" --activation "$HOME/Downloads/笔下MCP-激活.json"
-```
-
-Windows PowerShell（需要 Git 与 Python 启动器；也可将 `py -3` 换成实际 Python.exe 路径）：
+Windows PowerShell（需要 Git 与 Python 启动器）：
 
 ```powershell
-git clone https://github.com/Scarrydog4/bixia-mcp.git "$env:USERPROFILE\Applications\BIxia"
-py -3 "$env:USERPROFILE\Applications\BIxia\scripts\setup.py"
+git clone https://github.com/Scarrydog4/bixia-mcp.git
+py -3 bixia-mcp/scripts/setup.py
 ```
 
-脚本会保存本机私有配置并输出接入用的 JSON。将其中 `bixia-mcp` 条目合并到支持**本机 stdio MCP** 的 AI 客户端配置中，保留已有的其他服务器，随后重启客户端。默认生成的接入配置位于 `~/.bixia-mcp/mcp-servers.json`；其中只有私有配置路径，不包含访问密钥。
+脚本会输出接入用的 JSON。将其中 `bixia-mcp` 条目合并到支持**本机 stdio MCP** 的 AI 客户端配置中，保留已有的其他服务器，随后重启客户端。生成的接入配置位于 `~/.bixia-mcp/mcp-servers.json`。初次直接启动 MCP 服务时也会自动准备连接配置。
 
-激活只保存本机配置，不联网、不创建改写任务。激活文件和私有配置在 macOS/Linux 下设为600权限；Windows 使用仅当前用户、SYSTEM及管理员可访问的 ACL。权限设置或验证失败时停止。安装目录不要移动，移动后请重新运行 `setup.py` 更新路径。
+已经克隆过的电脑，进入 `bixia-mcp` 仓库目录更新后运行：
 
-若安装路径已经存在，请在该仓库目录运行 `git pull --ff-only` 更新，不重复克隆。升级会保留仓库之外的个人激活配置。也可继续使用 `scripts/activate.py` 和 `examples/` 中的手动配置模板。
+```bash
+git pull --ff-only
+python3 scripts/setup.py
+```
+
+安装只配置连接，不提交论文或创建改写任务。每台电脑有独立的访问配置与任务空间；本机连接信息自动保存为私有文件。公开仓库不含网站凭据、管理员密钥或后台代码。首次配置需要联网，服务暂不可用时会明确报错。安装目录移动后请重新运行 `setup.py` 更新路径。
+
+旧版手动激活方式仍兼容：有个人激活文件时可使用 `scripts/activate.py`，或向 `setup.py` 传入 `--activation`；普通新安装不需要这些步骤。
 
 ## 接入你的 Agent
 
@@ -70,4 +71,4 @@ py -3 "$env:USERPROFILE\Applications\BIxia\scripts\setup.py"
 
 ## 功能与安装海报
 
-![BIxia 功能与 GitHub 安装](assets/bixia-poster-github.png)
+![BIxia 功能与 GitHub 安装](assets/bixia-poster-auto.png)

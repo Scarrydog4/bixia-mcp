@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Activate BIxia and print a portable MCP entry; never edit an AI client's settings."""
+"""Prepare BIxia automatically and print an MCP entry; never edit AI client settings."""
 import argparse
 import json
 import os
@@ -10,7 +10,7 @@ import sys
 if sys.version_info < (3, 10):
     raise SystemExit("需要 Python 3.10 或以上。")
 
-from bixia_client import DEFAULT_CONFIG, IS_WINDOWS, ShareClient, private_write
+from bixia_client import DEFAULT_CONFIG, IS_WINDOWS, ShareClient, ShareError, ensure_auto_config, private_write
 
 
 def main():
@@ -27,16 +27,10 @@ def main():
     config = Path(args.config).expanduser().resolve()
     destination = Path(args.output).expanduser().resolve()
     activation = args.activation
-    if activation is None and not config.exists():
-        if not sys.stdin.isatty():
-            print("请通过 --activation 指定单独提供的激活 JSON。", file=sys.stderr)
-            return 1
-        activation = input("请输入激活 JSON 的完整路径：").strip().strip("\"'")
-        if not activation:
-            print("需要激活文件才能完成安装。", file=sys.stderr)
-            return 1
     try:
-        if destination == config or (activation and destination == Path(activation).expanduser().resolve()):
+        reserved = {config, config.with_name(config.name + ".enrollment.json"),
+                    config.with_name(config.name + ".enrollment.lock")}
+        if destination in reserved or (activation and destination == Path(activation).expanduser().resolve()):
             raise ValueError("接入配置不能覆盖激活文件或私有配置")
         if activation:
             source = Path(activation).expanduser().resolve()
@@ -46,7 +40,10 @@ def main():
                                         "--config", str(source), "--destination", str(config)])
             if completed.returncode:
                 return completed.returncode
-        client = ShareClient.from_config(str(config))
+        else:
+            ensure_auto_config(str(config))
+        client = ShareClient.from_config(str(config),
+                                        allow_missing="BIXIA_MCP_KEY" in os.environ or "ACADEMIC_REWRITE_KEY" in os.environ)
         client.close()
         entry = {"mcpServers": {"bixia-mcp": {
             "command": str(Path(sys.executable).resolve()),
@@ -54,14 +51,17 @@ def main():
             "env": {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
         }}}
         private_write(destination, entry)
-        print("\nBIxia 本机配置已准备好，尚未联网或提交改写任务。")
+        print("\nBIxia 本机配置已准备好，无需单独激活 JSON，未提交改写任务。")
         print("将下面条目合并到支持本机 stdio MCP 的 AI 客户端配置中，然后重启客户端。")
         print("请保留客户端已有的其他 MCP 条目。")
         print(json.dumps(entry, ensure_ascii=False, indent=2))
         print("\n接入配置已保存：" + str(destination))
         return 0
+    except ShareError as error:
+        print(str(error), file=sys.stderr)
+        return 1
     except Exception:
-        print("配置失败，请检查激活文件、文件权限和安装路径。访问密钥不会显示。", file=sys.stderr)
+        print("配置失败，请检查网络、文件权限和安装路径。访问密钥不会显示。", file=sys.stderr)
         return 1
 
 
