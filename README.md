@@ -67,3 +67,7 @@ py -3 "$env:USERPROFILE\Applications\BIxia\scripts\setup.py"
 工具返回content_protection采纳/恢复/拒绝计数及quality_status。limited_rewrite表示大量原文保留，实验论文可改范围可能很小，不能宣称全文双降有效。保护不等于语义或排版全面通过，更不能证明检测分数降低；仍需对照原稿复核和真实检测报告。
 
 全段均需保护的稿件返回no_safe_text，在上传和收费提交前停止。已有任务保持原ID恢复，不为内容保护重新提交。
+
+## 功能与安装海报
+
+![BIxia 功能与 GitHub 安装](assets/bixia-poster-github.png)
