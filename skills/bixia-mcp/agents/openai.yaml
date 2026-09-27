@@ -1,0 +1,4 @@
+interface:
+  display_name: "笔下MCP"
+  short_description: "使用统一MCP检索核验中英文文献并按目标平台双降Word文件"
+  default_prompt: "使用笔下MCP处理我的文献和Word文件，并先确认目标检测平台。"

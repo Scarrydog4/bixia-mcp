@@ -1,0 +1,7 @@
+[mcp_servers.bixia-mcp]
+command = "C:\\Users\\YOUR_NAME\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
+args = ["C:\\Users\\YOUR_NAME\\Apps\\bixia-mcp\\scripts\\bixia_client.py", "--config", "C:\\Users\\YOUR_NAME\\.academic-rewrite\\config.json"]
+
+[mcp_servers.bixia-mcp.env]
+PYTHONUTF8 = "1"
+PYTHONIOENCODING = "utf-8"

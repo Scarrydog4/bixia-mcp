@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+config.json
+*激活*.json
+*activation*.json
+*.key
+*.sqlite*
+*.zip
+

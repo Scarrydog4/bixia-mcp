@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "bixia-mcp": {
+      "command": "/absolute/path/to/python3",
+      "args": [
+        "/home/YOUR_NAME/apps/bixia-mcp/scripts/bixia_client.py",
+        "--config",
+        "/home/YOUR_NAME/.academic-rewrite/config.json"
+      ],
+      "env": {
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}

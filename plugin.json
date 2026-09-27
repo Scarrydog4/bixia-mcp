@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bixia-mcp",
+  "version": "1.0.4",
+  "description": "文献检索核验与Word文件双降",
+  "author": {
+    "name": "笔下MCP"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "笔下MCP",
+        "shortDescription": "文献检索核验与Word文件双降",
+        "longDescription": "检索并核验学术文献；选择目标平台后进行Word文件双降，并保存结果到本机。文献下载已关闭。",
+        "developerName": "笔下MCP",
+        "category": "Productivity",
+        "capabilities": [
+          "Interactive",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "检索并核验这些参考文献",
+          "检索社区图书馆研究文献",
+          "给这个Word文件降重降AI，先确认平台"
+        ]
+      }
+    }
+  }
+}
